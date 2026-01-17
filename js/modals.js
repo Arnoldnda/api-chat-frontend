@@ -5,18 +5,24 @@
 // ==========================================
 
 function showNewMessageModal() {
+    // Créer l'overlay pour l'effet de profondeur
+    const overlayHtml = `
+        <div id="new-message-modal-overlay" class="fixed left-0 top-0 bottom-0 w-96 z-40" style="background-color: rgba(0, 0, 0, 0.3); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);"></div>
+    `;
+    
     const modalHtml = `
-        <div id="new-message-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
-                <!-- Header -->
-                <div class="flex items-center justify-between p-4 border-b border-gray-700">
-                    <h3 class="text-white font-semibold text-lg">Nouvelle discussion</h3>
-                    <button id="close-new-message-modal" class="text-gray-400 hover:text-white">
+        <div id="new-message-modal" class="fixed left-0 top-0 bottom-0 w-96 bg-gray-800 flex flex-col z-50 shadow-2xl" style="transform: translateX(0); transition: transform 0.3s ease-in-out;">
+            <!-- Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-900">
+                <div class="flex items-center">
+                    <button id="close-new-message-modal" class="text-gray-400 hover:text-white mr-3">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                         </svg>
                     </button>
+                    <h3 class="text-white font-semibold text-lg">Nouvelle discussion</h3>
                 </div>
+            </div>
                 
                 <!-- Recherche -->
                 <div class="p-4 border-b border-gray-700">
@@ -58,6 +64,7 @@ function showNewMessageModal() {
         </div>
     `;
     
+    $('body').append(overlayHtml);
     $('body').append(modalHtml);
     
     // Charger la liste des utilisateurs
@@ -65,11 +72,7 @@ function showNewMessageModal() {
     
     // Événements
     $('#close-new-message-modal').click(closeNewMessageModal);
-    $('#new-message-modal').click(function(e) {
-        if (e.target.id === 'new-message-modal') {
-            closeNewMessageModal();
-        }
-    });
+    $('#new-message-modal-overlay').click(closeNewMessageModal);
     
     $('#search-users-modal').on('input', function() {
         filterUsersInModal($(this).val().toLowerCase());
@@ -155,17 +158,29 @@ function filterUsersInModal(query) {
 
 function closeNewMessageModal() {
     $('#new-message-modal').remove();
+    $('#new-message-modal-overlay').remove();
 }
 
 function startPrivateConversation(userId) {
     closeNewMessageModal();
     
     // Chercher si une conversation privée existe déjà
-    const existingConv = CONVERSATIONS.find(c => 
-        c.type === 'private' && 
-        c.participants.includes(currentUser.id) && 
-        c.participants.includes(userId)
-    );
+    // Vérifier d'abord avec participantIds si disponible, sinon avec participants
+    const existingConv = CONVERSATIONS.find(c => {
+        if (c.type !== 'private') return false;
+        
+        // Si participantIds est disponible (depuis l'API), l'utiliser
+        if (c.participantIds && Array.isArray(c.participantIds) && c.participantIds.length > 0) {
+            return c.participantIds.includes(currentUser.id) && c.participantIds.includes(userId);
+        }
+        
+        // Sinon, utiliser participants si disponible
+        if (c.participants && Array.isArray(c.participants) && c.participants.length > 0) {
+            return c.participants.includes(currentUser.id) && c.participants.includes(userId);
+        }
+        
+        return false;
+    });
     
     if (existingConv) {
         // Conversation existe, on l'ouvre
@@ -197,11 +212,23 @@ function startPrivateConversation(userId) {
         if (!MESSAGES) MESSAGES = {};
         MESSAGES[newConv.id] = [];
         
-        // Recharger et sélectionner
-        loadConversations();
+        // Ajouter la conversation temporaire à l'affichage sans recharger depuis l'API
+        const $list = $('#conversations-list');
+        const convHtml = createConversationItem(newConv);
+        $list.prepend(convHtml);
+        
+        // Attacher les événements sur la nouvelle conversation
+        $(`.conversation-item[data-id="${newConv.id}"]`).click(function(e) {
+            if ($(e.target).closest('.export-conv-btn').length) {
+                return;
+            }
+            selectConversation(newConv.id);
+        });
+        
+        // Sélectionner la conversation
         selectConversation(newConv.id);
         
-        showSuccess(`Conversation avec ${otherUser.prenoms} créée`);
+        // Pas de message de succès - la conversation n'est pas vraiment créée tant qu'un message n'est pas envoyé
     }
 }
 
@@ -210,18 +237,24 @@ function startPrivateConversation(userId) {
 // ==========================================
 
 function showNewGroupModal() {
+    // Créer l'overlay pour l'effet de profondeur
+    const overlayHtml = `
+        <div id="new-group-modal-overlay" class="fixed left-0 top-0 bottom-0 w-96 z-40" style="background-color: rgba(0, 0, 0, 0.3); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);"></div>
+    `;
+    
     const modalHtml = `
-        <div id="new-group-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
-                <!-- Header -->
-                <div class="flex items-center justify-between p-4 border-b border-gray-700">
-                    <h3 class="text-white font-semibold text-lg">Nouveau groupe</h3>
-                    <button id="close-new-group-modal" class="text-gray-400 hover:text-white">
+        <div id="new-group-modal" class="fixed left-0 top-0 bottom-0 w-96 bg-gray-800 flex flex-col z-50 shadow-2xl" style="transform: translateX(0); transition: transform 0.3s ease-in-out;">
+            <!-- Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-900">
+                <div class="flex items-center">
+                    <button id="close-new-group-modal" class="text-gray-400 hover:text-white mr-3">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                         </svg>
                     </button>
+                    <h3 class="text-white font-semibold text-lg">Nouveau groupe</h3>
                 </div>
+            </div>
                 
                 <!-- Nom du groupe -->
                 <div class="p-4 border-b border-gray-700">
@@ -261,6 +294,7 @@ function showNewGroupModal() {
         </div>
     `;
     
+    $('body').append(overlayHtml);
     $('body').append(modalHtml);
     
     // Charger la liste des utilisateurs
@@ -268,11 +302,7 @@ function showNewGroupModal() {
     
     // Événements
     $('#close-new-group-modal, #cancel-group').click(closeNewGroupModal);
-    $('#new-group-modal').click(function(e) {
-        if (e.target.id === 'new-group-modal') {
-            closeNewGroupModal();
-        }
-    });
+    $('#new-group-modal-overlay').click(closeNewGroupModal);
     
     $('#group-name-input').on('input', checkGroupFormValidity);
     $('#create-group').click(createGroup);
@@ -401,6 +431,7 @@ function createGroup() {
 
 function closeNewGroupModal() {
     $('#new-group-modal').remove();
+    $('#new-group-modal-overlay').remove();
 }
 
 // ==========================================
@@ -472,7 +503,8 @@ function loadUsersForAddMember(conversationId) {
     const $list = $('#add-member-list');
     $list.empty();
     
-    // Utilisateurs pas encore dans le groupe
+    // Utilisateurs pas encore dans le groupe (seulement exclure les membres actifs)
+    // Les anciens membres peuvent être réajoutés
     const availableUsers = USERS.filter(u => !conv.participants.includes(u.id));
     
     if (availableUsers.length === 0) {
@@ -532,6 +564,13 @@ function addMemberToGroup(conversationId, userId) {
                 if (!$('#conversation-info-panel').hasClass('hidden')) {
                     renderConversationInfo();
                 }
+                // Fermer et rouvrir le modal d'ajout de membre s'il est ouvert pour mettre à jour la liste
+                if ($('#add-member-modal').length > 0) {
+                    closeAddMemberModal();
+                    setTimeout(() => {
+                        showAddMemberModal(conversationId);
+                    }, 100);
+                }
             });
             
             showSuccess(`${user.prenoms} ${user.nom} ajouté au groupe`);
@@ -556,4 +595,63 @@ function filterAddMemberList(query) {
 
 function closeAddMemberModal() {
     $('#add-member-modal').remove();
+}
+
+// ==========================================
+// MODAL DE CONFIRMATION
+// ==========================================
+
+/**
+ * Affiche un popup de confirmation moderne
+ * @param {string} title - Titre du popup
+ * @param {string} message - Message de confirmation
+ * @param {function} onConfirm - Callback appelé lors de la confirmation
+ * @param {function} onCancel - Callback appelé lors de l'annulation (optionnel)
+ * @param {string} confirmButtonText - Texte du bouton de confirmation (défaut: 'Confirmer')
+ * @param {string} cancelButtonText - Texte du bouton d'annulation (défaut: 'Annuler')
+ * @param {boolean} isDestructive - Si true, le bouton de confirmation sera rouge (défaut: false)
+ */
+function showConfirmModal(title, message, onConfirm, onCancel, confirmButtonText = 'Confirmer', cancelButtonText = 'Annuler', isDestructive = false) {
+    const modalHtml = `
+        <div id="confirm-modal" class="fixed inset-0 flex items-center justify-center z-50" style="background-color: rgba(0, 0, 0, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
+            <div class="bg-gray-800 rounded-lg w-full max-w-md p-6 shadow-2xl">
+                <h3 class="text-white font-semibold text-lg mb-4">${title}</h3>
+                <p class="text-gray-300 mb-6">${message}</p>
+                <div class="flex justify-end space-x-3">
+                    <button id="confirm-cancel-btn" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition">
+                        ${cancelButtonText}
+                    </button>
+                    <button id="confirm-ok-btn" class="px-4 py-2 ${isDestructive ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white rounded-lg transition">
+                        ${confirmButtonText}
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    
+    $('#confirm-cancel-btn').click(function() {
+        $('#confirm-modal').remove();
+        if (onCancel && typeof onCancel === 'function') {
+            onCancel();
+        }
+    });
+    
+    $('#confirm-ok-btn').click(function() {
+        $('#confirm-modal').remove();
+        if (onConfirm && typeof onConfirm === 'function') {
+            onConfirm();
+        }
+    });
+    
+    // Fermer en cliquant sur le fond
+    $('#confirm-modal').click(function(e) {
+        if (e.target.id === 'confirm-modal') {
+            $('#confirm-modal').remove();
+            if (onCancel && typeof onCancel === 'function') {
+                onCancel();
+            }
+        }
+    });
 }

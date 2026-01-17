@@ -32,15 +32,21 @@ function buildRequest(data = null, datas = null, index = 0, size = 100, isSimple
  */
 function apiGetConversations(index = 0, size = 100) {
     const currentUser = getCurrentUser();
+    if (!currentUser || !currentUser.id) {
+        console.error('Utilisateur non connecté');
+        return $.Deferred().reject({ status: 401, responseJSON: { status: { message: 'Utilisateur non connecté' } } });
+    }
+    
     const request = buildRequest(
         { userId: currentUser.id },
         null,
         index,
-        size
+        size,
+        true  // isSimpleLoading = true pour obtenir les dates avec heure
     );
     
     return apiRequest({
-        url: getApiUrl('/conversation/getByCriteria'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_GET_BY_CRITERIA),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -59,7 +65,7 @@ function apiCreateGroup(titre, participantIds) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversation/create'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_CREATE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -75,7 +81,7 @@ function apiExportConversation(conversationId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversation/export'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_EXPORT),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -85,10 +91,13 @@ function apiExportConversation(conversationId) {
  * Exporte toutes les conversations
  */
 function apiExportAllConversations() {
-    const request = buildRequest();
+    const request = buildRequest(
+        null,  // data
+        [{}]   // datas - tableau avec un objet vide comme attendu par l'API
+    );
     
     return apiRequest({
-        url: getApiUrl('/conversation/export/all'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_EXPORT_ALL),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -98,14 +107,14 @@ function apiExportAllConversations() {
  * Télécharge un fichier d'export
  */
 function apiDownloadExport(fileName) {
-    return getApiUrl(`/conversation/download/${fileName}`);
+    return getApiUrl(`${CONFIG.ROUTES.CONVERSATION_DOWNLOAD}/${fileName}`);
 }
 
 /**
  * Télécharge un fichier ZIP d'export
  */
 function apiDownloadZipExport(fileName) {
-    return getApiUrl(`/conversation/download/zip/${fileName}`);
+    return getApiUrl(`${CONFIG.ROUTES.CONVERSATION_DOWNLOAD_ZIP}/${fileName}`);
 }
 
 /**
@@ -132,7 +141,7 @@ function apiSendPrivateMessage(receiverId, typeMessageCode, content = null, imgU
     const request = buildRequest(null, [messageData]);
     
     return apiRequest({
-        url: getApiUrl('/message/private/send'),
+        url: getApiUrl(CONFIG.ROUTES.MESSAGE_PRIVATE_SEND),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -158,7 +167,7 @@ function apiSendGroupMessage(conversationId, typeMessageCode, content = null, im
     const request = buildRequest(null, [messageData]);
     
     return apiRequest({
-        url: getApiUrl('/message/group/send'),
+        url: getApiUrl(CONFIG.ROUTES.MESSAGE_GROUP_SEND),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -168,15 +177,46 @@ function apiSendGroupMessage(conversationId, typeMessageCode, content = null, im
  * Récupère les messages d'une conversation
  */
 function apiGetMessages(conversationId, index = 0, size = 100) {
+    if (!conversationId) {
+        console.error('conversationId is required');
+        return $.Deferred().reject({ status: 400, responseJSON: { status: { message: 'conversationId is required' } } });
+    }
+    
     const request = buildRequest(
         { conversationId: conversationId },
         null,
         index,
-        size
+        size,
+        true  // isSimpleLoading = true pour obtenir les dates avec heure
     );
     
     return apiRequest({
-        url: getApiUrl('/message/getByCriteria'),
+        url: getApiUrl(CONFIG.ROUTES.MESSAGE_GET_BY_CRITERIA),
+        method: 'POST',
+        data: JSON.stringify(request)
+    });
+}
+
+/**
+ * Récupère le dernier message visible (isHiden: false) d'une conversation
+ * Utilise /message/getByCriteria avec conversationId et isSimpleLoading: true
+ */
+function apiGetLastVisibleMessage(conversationId) {
+    if (!conversationId) {
+        console.error('conversationId is required');
+        return $.Deferred().reject({ status: 400, responseJSON: { status: { message: 'conversationId is required' } } });
+    }
+    
+    const request = buildRequest(
+        { conversationId: conversationId },
+        null,
+        0,
+        100, // Charger plusieurs messages pour trouver le dernier visible
+        true // isSimpleLoading = true pour avoir la date complète avec l'heure
+    );
+    
+    return apiRequest({
+        url: getApiUrl(CONFIG.ROUTES.MESSAGE_GET_BY_CRITERIA),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -190,7 +230,7 @@ function apiUploadImage(file) {
     formData.append('file', file);
     
     return $.ajax({
-        url: getApiUrl('/message/upload-image'),
+        url: getApiUrl(CONFIG.ROUTES.MESSAGE_UPLOAD_IMAGE),
         method: 'POST',
         data: formData,
         processData: false,
@@ -212,7 +252,7 @@ function apiDeleteMessage(messageId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/historiqueSuppressionMessage/deleteMessage'),
+        url: getApiUrl(CONFIG.ROUTES.HISTORIQUE_DELETE_MESSAGE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -235,7 +275,7 @@ function apiAddMemberToGroup(conversationId, userId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/group/add'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_GROUP_ADD),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -254,7 +294,7 @@ function apiRemoveMemberFromGroup(conversationId, userId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/group/remove'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_GROUP_REMOVE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -270,7 +310,7 @@ function apiLeaveGroup(conversationId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/group/leave'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_GROUP_LEAVE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -286,7 +326,7 @@ function apiDeleteConversation(conversationId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/deleteConversation'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_DELETE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -305,7 +345,7 @@ function apiPromoteToAdmin(conversationId, userId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/promoveToAdmin'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_PROMOTE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -324,7 +364,7 @@ function apiDemoteFromAdmin(conversationId, userId) {
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/demoteFromAdmin'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_DEMOTE),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -334,12 +374,17 @@ function apiDemoteFromAdmin(conversationId, userId) {
  * Récupère la liste des membres d'une conversation
  */
 function apiGetConversationMembers(conversationId) {
+    if (!conversationId) {
+        console.error('conversationId is required');
+        return $.Deferred().reject({ status: 400, responseJSON: { status: { message: 'conversationId is required' } } });
+    }
+    
     const request = buildRequest(
         { conversationId: conversationId }
     );
     
     return apiRequest({
-        url: getApiUrl('/conversationUser/getByCriteria'),
+        url: getApiUrl(CONFIG.ROUTES.CONVERSATION_USER_GET_BY_CRITERIA),
         method: 'POST',
         data: JSON.stringify(request)
     });
@@ -361,7 +406,7 @@ function apiGetUsers(index = 0, size = 100) {
     );
     
     return apiRequest({
-        url: getApiUrl('/user/getByCriteria'),
+        url: getApiUrl(CONFIG.ROUTES.USER_GET_BY_CRITERIA),
         method: 'POST',
         data: JSON.stringify(request)
     });

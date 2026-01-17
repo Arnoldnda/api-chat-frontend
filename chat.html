@@ -178,14 +178,27 @@
                 </div>
 
                 <!-- Messages -->
-                <div id="messages-container" class="flex-1 overflow-y-auto p-6 scrollbar-thin bg-gray-900"
-                    style="min-height: 0;">
-                    <!-- Les messages seront insérés ici -->
+                <div id="messages-container-wrapper" class="flex-1 flex flex-col bg-gray-900" style="min-height: 0;">
+                    <!-- Séparateur de jour sticky (affiché lors du scroll) -->
+                    <div id="sticky-day-separator" class="sticky top-0 z-10 flex justify-center py-2 bg-gray-900 hidden">
+                        <div class="bg-gray-600 text-gray-300 text-xs px-3 py-1 rounded-full">
+                            <!-- Le texte sera mis à jour dynamiquement -->
+                        </div>
+                    </div>
+                    <div id="messages-container" class="flex-1 overflow-y-auto p-6 scrollbar-thin"
+                        style="min-height: 0;">
+                        <!-- Les messages seront insérés ici -->
+                    </div>
                 </div>
 
                 <!-- Zone d'envoi (fixée en bas) -->
                 <div class="bg-gray-800 p-4 border-t border-gray-700 flex-shrink-0">
                     <div id="image-preview" class="mb-2 hidden"></div>
+
+                    <!-- Barre de message pour utilisateur ayant quitté le groupe -->
+                    <div id="left-group-message" class="hidden bg-gray-700 text-white px-4 py-3 rounded-lg text-center">
+                        <p class="text-sm">Vous ne pouvez pas envoyer de messages à ce groupe, car vous n'en faites plus partie.</p>
+                    </div>
 
                     <form id="message-form" class="flex items-end space-x-2">
                         <input type="file" id="image-input" accept="image/*" class="hidden">
@@ -295,7 +308,7 @@
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/api.js"></script>
-    <script src="js/mock-data.js"></script>
+    <!-- mock-data.js removed - using API backend only -->
     <script src="js/modals.js"></script>
     <script src="js/chat.js"></script>
 
