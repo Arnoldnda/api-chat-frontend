@@ -30,6 +30,28 @@ function getConversationById(convId) {
 }
 
 /**
+ * Récupère les groupes en commun entre deux utilisateurs
+ * @param {number} userId1 - ID du premier utilisateur
+ * @param {number} userId2 - ID du deuxième utilisateur
+ * @returns {Array} Liste des groupes en commun
+ */
+function getCommonGroups(userId1, userId2) {
+    return CONVERSATIONS.filter(conv => {
+        // Seulement les groupes
+        if (conv.type !== 'group') return false;
+        
+        // Vérifier si les deux utilisateurs sont membres
+        const participants = conv.participants || [];
+        const participantIds = conv.participantIds || [];
+        
+        const user1IsMember = participants.includes(userId1) || participantIds.includes(userId1);
+        const user2IsMember = participants.includes(userId2) || participantIds.includes(userId2);
+        
+        return user1IsMember && user2IsMember;
+    });
+}
+
+/**
  * Récupère les messages d'une conversation depuis le cache local
  */
 function getMessagesByConversation(convId) {
@@ -165,11 +187,7 @@ function setupEventListeners() {
     });
     
     // Infos du groupe/conversation
-    $('#btn-conversation-info').click(function() {
-        toggleConversationInfo();
-    });
-    
-    // Clic sur le header de conversation pour afficher les infos
+    // Tout le header est cliquable pour ouvrir les infos
     $('#conversation-header').click(function() {
         if (currentConversation) {
             toggleConversationInfo();
@@ -692,19 +710,19 @@ function createConversationItem(conv) {
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between mb-1">
                         <h3 class="font-semibold text-white truncate">${conv.titre}</h3>
-                        <span class="conversation-time text-xs text-gray-400 ml-2">${timeDisplay}</span>
+                        <div class="flex flex-col items-end">
+                            <span class="conversation-time text-xs text-gray-400">${timeDisplay}</span>
+                            <!-- Flèche vers le bas (visible au survol) -->
+                            <button class="three-dots-conv-btn mt-1.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white transition-opacity" data-conv-id="${conv.id}" data-conv-type="${conv.type}" title="Options">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     ${lastMessageDisplay}
                 </div>
             </div>
-            <!-- Menu trois points (visible au survol) -->
-            <button class="three-dots-conv-btn absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 bg-gray-600 hover:bg-gray-500 text-white p-2 rounded-full transition-opacity" data-conv-id="${conv.id}" data-conv-type="${conv.type}" title="Options">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="5" r="1.5"/>
-                    <circle cx="12" cy="12" r="1.5"/>
-                    <circle cx="12" cy="19" r="1.5"/>
-                </svg>
-            </button>
         </div>
     `;
 }
@@ -787,6 +805,10 @@ function selectConversation(convId) {
     loadConversationParticipants(convId, function() {
         // Mettre à jour l'affichage de la zone d'envoi après avoir chargé les participants
         updateMessageInputVisibility();
+        // Si le panneau d'infos est ouvert, recharger les infos pour afficher les participants
+        if (!$('#conversation-info-panel').hasClass('hidden') && currentConversation && currentConversation.id === convId) {
+            renderConversationInfo();
+        }
     });
     
     // Mettre à jour le header
@@ -828,7 +850,14 @@ function loadConversationParticipants(conversationId, callback) {
             }
             
             const conv = getConversationById(conversationId);
-            if (!conv) return;
+            if (!conv) {
+                // Si la conversation n'est pas dans le cache, essayer de la charger depuis l'API
+                // Cela peut arriver si on clique sur un groupe depuis les groupes en commun
+                if (callback && typeof callback === 'function') {
+                    callback();
+                }
+                return;
+            }
             
             // Mapper les membres depuis l'API
             const participants = [];
@@ -958,16 +987,7 @@ function updateChatHeader() {
     $('#conversation-icon').html(icon);
     $('#conversation-title').text(currentConversation.titre);
     
-    // Toujours permettre de cliquer sur le header pour voir les infos
-    // Le bouton info reste visible pour les groupes, mais le header est cliquable pour tous
-    if (currentConversation.type === 'group') {
-        $('#btn-conversation-info').show();
-    } else {
-        $('#btn-conversation-info').hide();
-    }
-    
-    // Rendre le header cliquable visuellement
-    $('#conversation-header').css('cursor', 'pointer');
+    // Le header est déjà cliquable via la classe cursor-pointer dans le HTML
 }
 
 /**
@@ -1783,7 +1803,34 @@ function renderConversationInfo() {
     const isGroup = currentConversation.type === 'group';
     const currentUser = getCurrentUser();
     
-    const participants = getConversationParticipants(currentConversation.id);
+    // Récupérer les participants depuis la conversation actuelle
+    // getConversationParticipants retourne déjà les objets utilisateur complets
+    let participants = getConversationParticipants(currentConversation.id);
+    
+    // Si pas de participants pour un groupe, vérifier si les IDs sont chargés mais pas les objets utilisateur
+    if (isGroup && (!participants || participants.length === 0)) {
+        // Vérifier si la conversation a des participantIds mais pas d'objets utilisateur chargés
+        const conv = getConversationById(currentConversation.id);
+        const hasParticipantIds = conv && ((conv.participants && conv.participants.length > 0) || (conv.participantIds && conv.participantIds.length > 0));
+        
+        if (hasParticipantIds) {
+            // Les IDs sont là mais les objets utilisateur ne sont pas chargés dans USERS
+            // Charger depuis l'API pour mettre à jour USERS
+            loadConversationParticipants(currentConversation.id, function() {
+                // Re-rendre les infos une fois les participants chargés
+                renderConversationInfo();
+            });
+            return; // Sortir ici, renderConversationInfo sera rappelé après le chargement
+        } else {
+            // Pas d'IDs non plus, charger depuis l'API
+            loadConversationParticipants(currentConversation.id, function() {
+                // Re-rendre les infos une fois les participants chargés
+                renderConversationInfo();
+            });
+            return; // Sortir ici, renderConversationInfo sera rappelé après le chargement
+        }
+    }
+    
     const isAdmin = isGroup && isUserAdmin(currentConversation.id, currentUser.id);
     
     // Mettre à jour le titre du panneau
@@ -1796,17 +1843,257 @@ function renderConversationInfo() {
         // Pour les conversations privées, afficher le nom de l'autre participant
         const otherParticipant = participants.find(p => p.id !== currentUser.id);
         if (otherParticipant) {
-            $('#members-count').text('Conversation privée');
+            $('#members-count').text(`${otherParticipant.prenoms} ${otherParticipant.nom}`);
         } else {
-            $('#members-count').text('1 participant');
+            $('#members-count').text('Conversation privée');
         }
     }
     
     const $membersList = $('#members-list');
     $membersList.empty();
     
-    // Afficher les membres actifs
-    participants.forEach(user => {
+    // Pour les conversations privées, afficher les groupes en commun
+    if (!isGroup) {
+        const otherParticipant = participants.find(p => p.id !== currentUser.id);
+        if (otherParticipant) {
+            const commonGroups = getCommonGroups(currentUser.id, otherParticipant.id);
+            
+            if (commonGroups.length > 0) {
+                // Charger les participants de tous les groupes en commun
+                const loadPromises = commonGroups.map(group => {
+                    return apiGetConversationMembers(group.id)
+                        .done(function(response) {
+                            if (response.hasError || !response.items || response.items.length === 0) {
+                                return;
+                            }
+                            
+                            // Mapper les membres depuis l'API et mettre à jour le cache
+                            const groupParticipants = [];
+                            const groupAdmins = [];
+                            const groupFormerMembers = [];
+                            
+                            response.items.forEach(member => {
+                                if (member.userId) {
+                                    const hasLeft = member.hasLeft || false;
+                                    
+                                    // Mettre à jour le cache USERS
+                                    const userIndex = USERS.findIndex(u => u.id === member.userId);
+                                    if (userIndex >= 0) {
+                                        if (member.userNom) USERS[userIndex].nom = member.userNom;
+                                        if (member.userPrenoms) USERS[userIndex].prenoms = member.userPrenoms;
+                                        if (member.userLogin) USERS[userIndex].login = member.userLogin;
+                                    } else {
+                                        USERS.push({
+                                            id: member.userId,
+                                            nom: member.userNom || '',
+                                            prenoms: member.userPrenoms || '',
+                                            login: member.userLogin || ''
+                                        });
+                                    }
+                                    
+                                    // Séparer les membres actifs des anciens membres
+                                    if (hasLeft) {
+                                        groupFormerMembers.push({
+                                            userId: member.userId,
+                                            leftAt: member.leftAt || null,
+                                            role: member.role || false
+                                        });
+                                    } else {
+                                        groupParticipants.push(member.userId);
+                                        if (member.role === true) {
+                                            groupAdmins.push(member.userId);
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            // Mettre à jour la conversation dans le cache
+                            group.participants = groupParticipants;
+                            group.admins = groupAdmins;
+                            group.formerMembers = groupFormerMembers;
+                        })
+                        .fail(function(xhr, status, error) {
+                            console.error('Erreur lors du chargement des participants du groupe:', error);
+                        });
+                });
+                
+                // Attendre que tous les participants soient chargés avant d'afficher
+                $.when.apply($, loadPromises).done(function() {
+                    // Maintenant afficher les groupes avec les participants chargés
+                    let commonGroupsHtml = `
+                        <div class="mb-6">
+                            <h5 class="text-gray-400 font-semibold mb-3">${commonGroups.length} ${commonGroups.length > 1 ? 'groupes en commun' : 'groupe en commun'}</h5>
+                            <div class="space-y-2">
+                    `;
+                    
+                    commonGroups.forEach(group => {
+                        const memberCount = group.participants ? group.participants.length : 0;
+                        
+                        // Récupérer les membres visibles (max 3-4, en excluant l'utilisateur actuel et l'autre participant)
+                        const visibleMembers = [];
+                        if (group.participants && group.participants.length > 0) {
+                            const otherParticipantId = otherParticipant.id;
+                            const currentUserId = currentUser.id;
+                            
+                            // Filtrer les participants (exclure l'utilisateur actuel et l'autre participant)
+                            const otherMembers = group.participants
+                                .filter(pId => pId !== currentUserId && pId !== otherParticipantId)
+                                .slice(0, 3); // Prendre max 3 autres membres
+                            
+                            // Convertir en objets utilisateur
+                            otherMembers.forEach(memberId => {
+                                const member = getUserById(memberId);
+                                if (member) {
+                                    visibleMembers.push(member);
+                                }
+                            });
+                        }
+                        
+                        // Construire la liste des noms de membres
+                        let membersListText = '';
+                        if (visibleMembers.length > 0) {
+                            membersListText = visibleMembers.map(m => `${m.prenoms} ${m.nom}`).join(', ');
+                            // Ajouter "Vous" si l'utilisateur actuel est dans le groupe
+                            if (group.participants && group.participants.includes(currentUser.id)) {
+                                membersListText += ', Vous';
+                            }
+                            // Si il y a plus de membres, on pourrait ajouter "et X autres" mais pour l'instant on garde simple
+                        } else if (group.participants && group.participants.includes(currentUser.id)) {
+                            membersListText = 'Vous';
+                        }
+                        
+                        commonGroupsHtml += `
+                            <div class="common-group-item p-3 hover:bg-gray-700 rounded cursor-pointer transition" data-group-id="${group.id}">
+                                <div class="flex items-center">
+                                    <div class="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center mr-3 flex-shrink-0">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                        </svg>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-white font-medium truncate">${group.titre}</p>
+                                        <p class="text-gray-400 text-sm truncate">${membersListText || `${memberCount} ${memberCount > 1 ? 'membres' : 'membre'}`}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    commonGroupsHtml += `
+                            </div>
+                        </div>
+                    `;
+                    
+                    $membersList.append(commonGroupsHtml);
+                    
+                    // Événement click pour ouvrir le groupe
+                    $('.common-group-item').click(function() {
+                        const groupId = parseInt($(this).data('group-id'));
+                        // Fermer le panneau d'infos d'abord
+                        $('#conversation-info-panel').addClass('hidden');
+                        // Sélectionner la conversation
+                        selectConversation(groupId);
+                        
+                        // Faire un appel API direct pour charger les participants
+                        apiGetConversationMembers(groupId)
+                            .done(function(response) {
+                                if (response.hasError || !response.items || response.items.length === 0) {
+                                    return;
+                                }
+                                
+                                const group = getConversationById(groupId);
+                                if (!group) return;
+                                
+                                // Mapper les membres depuis l'API et mettre à jour le cache
+                                const participants = [];
+                                const admins = [];
+                                const formerMembers = [];
+                                
+                                const currentUser = getCurrentUser();
+                                response.items.forEach(member => {
+                                    if (member.userId) {
+                                        const hasLeft = member.hasLeft || false;
+                                        
+                                        // Mettre à jour le cache USERS
+                                        const userIndex = USERS.findIndex(u => u.id === member.userId);
+                                        if (userIndex >= 0) {
+                                            if (member.userNom) USERS[userIndex].nom = member.userNom;
+                                            if (member.userPrenoms) USERS[userIndex].prenoms = member.userPrenoms;
+                                            if (member.userLogin) USERS[userIndex].login = member.userLogin;
+                                        } else {
+                                            USERS.push({
+                                                id: member.userId,
+                                                nom: member.userNom || '',
+                                                prenoms: member.userPrenoms || '',
+                                                login: member.userLogin || ''
+                                            });
+                                        }
+                                        
+                                        // Séparer les membres actifs des anciens membres
+                                        if (hasLeft) {
+                                            formerMembers.push({
+                                                userId: member.userId,
+                                                leftAt: member.leftAt || null,
+                                                role: member.role || false
+                                            });
+                                        } else {
+                                            participants.push(member.userId);
+                                            if (member.role === true) {
+                                                admins.push(member.userId);
+                                            }
+                                        }
+                                    }
+                                });
+                                
+                                // Mettre à jour la conversation dans le cache
+                                group.participants = participants;
+                                group.admins = admins;
+                                group.formerMembers = formerMembers;
+                                
+                                // Mettre à jour currentConversation aussi
+                                if (currentConversation && currentConversation.id === groupId) {
+                                    currentConversation.participants = participants;
+                                    currentConversation.admins = admins;
+                                    currentConversation.formerMembers = formerMembers;
+                                }
+                                
+                                // Si le panneau d'infos est ouvert, le rafraîchir
+                                if (!$('#conversation-info-panel').hasClass('hidden') && currentConversation && currentConversation.id === groupId) {
+                                    renderConversationInfo();
+                                }
+                            })
+                            .fail(function(xhr, status, error) {
+                                console.error('Erreur lors du chargement des participants:', error);
+                            });
+                    });
+                });
+            }
+        }
+    } else {
+        // Pour les groupes, trier : utilisateur connecté → admins → autres
+        let sortedParticipants = [...participants];
+        sortedParticipants.sort((a, b) => {
+            const aIsCurrentUser = a.id === currentUser.id;
+            const bIsCurrentUser = b.id === currentUser.id;
+            const aIsAdmin = currentConversation.admins && currentConversation.admins.includes(a.id);
+            const bIsAdmin = currentConversation.admins && currentConversation.admins.includes(b.id);
+            
+            // Utilisateur connecté en premier
+            if (aIsCurrentUser) return -1;
+            if (bIsCurrentUser) return 1;
+            
+            // Ensuite les admins
+            if (aIsAdmin && !bIsAdmin) return -1;
+            if (!aIsAdmin && bIsAdmin) return 1;
+            
+            // Enfin tri alphabétique pour les autres
+            const aName = `${a.prenoms} ${a.nom}`.toLowerCase();
+            const bName = `${b.prenoms} ${b.nom}`.toLowerCase();
+            return aName.localeCompare(bName);
+        });
+        
+        // Afficher les membres actifs
+        sortedParticipants.forEach(user => {
         const userIsAdmin = currentConversation.admins && currentConversation.admins.includes(user.id);
         const isCurrentUser = user.id === currentUser.id;
         
@@ -1817,8 +2104,8 @@ function renderConversationInfo() {
                         <span class="text-white font-semibold">${(user.prenoms || '').charAt(0) || (user.nom || '').charAt(0) || '?'}</span>
                     </div>
                     <div>
-                        <p class="text-white font-medium">${user.prenoms} ${user.nom}</p>
-                        <p class="text-gray-400 text-sm">@${user.login}</p>
+                        <p class="text-white font-medium">${isGroup && isCurrentUser ? 'Vous' : `${user.prenoms} ${user.nom}`}</p>
+                        ${!isGroup || !isCurrentUser ? `<p class="text-gray-400 text-sm">@${user.login}</p>` : ''}
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
@@ -1879,6 +2166,7 @@ function renderConversationInfo() {
             
             $membersList.append(formerMemberHtml);
         });
+        }
     }
     
     // Événements sur les menus membres
@@ -1923,7 +2211,12 @@ function renderConversationInfo() {
     }
     
     // Mettre à jour le titre de la section membres
-    $('#members-section-title').text(isGroup ? 'Membres' : 'Participants');
+    // Pour les conversations privées, ne pas afficher de titre de section
+    if (isGroup) {
+        $('#members-section-title').text('Membres').show();
+    } else {
+        $('#members-section-title').hide();
+    }
     
     // Mettre à jour le bouton quitter/supprimer
     if (isGroup) {

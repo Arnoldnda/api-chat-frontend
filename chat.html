@@ -161,20 +161,14 @@
             <div id="chat-zone" class="hidden flex flex-col h-full">
 
                 <!-- Header de la conversation -->
-                <div class="bg-gray-800 px-6 py-4 flex items-center justify-between border-b border-gray-700">
-                    <div class="flex items-center cursor-pointer" id="conversation-header">
+                <div class="bg-gray-800 px-6 py-4 flex items-center border-b border-gray-700 cursor-pointer" id="conversation-header">
+                    <div class="flex items-center">
                         <div class="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center mr-3">
                             <svg id="conversation-icon" class="w-6 h-6 text-white" fill="currentColor"
                                 viewBox="0 0 24 24"></svg>
                         </div>
                         <h2 id="conversation-title" class="text-white font-semibold text-lg"></h2>
                     </div>
-
-                    <button id="btn-conversation-info" class="hidden text-gray-400 hover:text-white p-2">
-                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </button>
                 </div>
 
                 <!-- Messages -->
