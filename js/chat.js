@@ -342,6 +342,13 @@ function loadConversations() {
                             newConv.participantIds = existingConv.participantIds;
                         }
                     }
+                    // Préserver createdAt et createdBy si déjà chargés
+                    if (existingConv.createdAt) {
+                        newConv.createdAt = existingConv.createdAt;
+                    }
+                    if (existingConv.createdBy) {
+                        newConv.createdBy = existingConv.createdBy;
+                    }
                 }
                 return newConv;
             });
@@ -643,6 +650,12 @@ function mapConversationFromApi(apiConv) {
         titre = 'Conversation privée';
     }
     
+    // Parser la date de création
+    let createdAt = null;
+    if (apiConv.createdAt) {
+        createdAt = parseDateFromApi(apiConv.createdAt);
+    }
+    
     const mappedConv = {
         id: apiConv.id,
         type: type,
@@ -655,6 +668,8 @@ function mapConversationFromApi(apiConv) {
         lastMessageDate: lastMessageDate,
         lastMessageType: lastMessageType,
         lastMessageImgUrl: lastMessageImgUrl,
+        createdAt: createdAt,
+        createdBy: apiConv.createdBy || null,
         avatar: null
     };
     return mappedConv;
@@ -897,7 +912,8 @@ function loadConversationParticipants(conversationId, callback) {
                         formerMembers.push({
                             userId: member.userId,
                             leftAt: member.leftAt || null,
-                            role: member.role || false
+                            role: member.role || false,
+                            hasDefinitivelyLeft: member.hasDefinitivelyLeft || false
                         });
                     } else {
                         // Membre actif
@@ -1852,6 +1868,47 @@ function renderConversationInfo() {
     const $membersList = $('#members-list');
     $membersList.empty();
     
+    // Afficher les informations de création pour les groupes (avant le titre "Membres")
+    if (isGroup) {
+        // Supprimer l'ancienne section si elle existe
+        $('#group-creation-info').remove();
+        
+        if (currentConversation.createdAt && currentConversation.createdBy) {
+            const creator = getUserById(currentConversation.createdBy);
+            const creatorName = creator ? `${creator.prenoms} ${creator.nom}` : 'Utilisateur inconnu';
+            
+            // Formater la date de création
+            const creationDate = currentConversation.createdAt;
+            let formattedDate = '';
+            if (creationDate instanceof Date) {
+                formattedDate = creationDate.toLocaleDateString('fr-FR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+                const formattedTime = creationDate.toLocaleTimeString('fr-FR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                formattedDate += ` à ${formattedTime}`;
+            } else if (typeof creationDate === 'string') {
+                formattedDate = creationDate;
+            }
+            
+            const creationInfoHtml = `
+                <div id="group-creation-info" class="mb-6 pb-4 border-b border-gray-700">
+                    <p class="text-gray-400 text-sm text-center">
+                        Groupe créé par <span class="text-white font-medium">${creatorName}</span><br>
+                        <span class="text-gray-500">le ${formattedDate}</span>
+                    </p>
+                </div>
+            `;
+            
+            // Insérer avant le conteneur de la section "Membres" (avant le titre)
+            $('#members-section-title').parent().before(creationInfoHtml);
+        }
+    }
+    
     // Pour les conversations privées, afficher les groupes en commun
     if (!isGroup) {
         const otherParticipant = participants.find(p => p.id !== currentUser.id);
@@ -1896,7 +1953,8 @@ function renderConversationInfo() {
                                         groupFormerMembers.push({
                                             userId: member.userId,
                                             leftAt: member.leftAt || null,
-                                            role: member.role || false
+                                            role: member.role || false,
+                                            hasDefinitivelyLeft: member.hasDefinitivelyLeft || false
                                         });
                                     } else {
                                         groupParticipants.push(member.userId);
@@ -2034,7 +2092,8 @@ function renderConversationInfo() {
                                             formerMembers.push({
                                                 userId: member.userId,
                                                 leftAt: member.leftAt || null,
-                                                role: member.role || false
+                                                role: member.role || false,
+                                                hasDefinitivelyLeft: member.hasDefinitivelyLeft || false
                                             });
                                         } else {
                                             participants.push(member.userId);
@@ -2098,7 +2157,7 @@ function renderConversationInfo() {
         const isCurrentUser = user.id === currentUser.id;
         
         const memberHtml = `
-            <div class="flex items-center justify-between p-3 hover:bg-gray-700 rounded">
+            <div class="group flex items-center justify-between p-3 hover:bg-gray-700 rounded">
                 <div class="flex items-center">
                     <div class="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center mr-3">
                         <span class="text-white font-semibold">${(user.prenoms || '').charAt(0) || (user.nom || '').charAt(0) || '?'}</span>
@@ -2108,13 +2167,13 @@ function renderConversationInfo() {
                         ${!isGroup || !isCurrentUser ? `<p class="text-gray-400 text-sm">@${user.login}</p>` : ''}
                     </div>
                 </div>
-                <div class="flex items-center space-x-2">
-                    ${userIsAdmin ? '<span class="text-green-400 text-sm">Admin</span>' : ''}
+                <div class="flex flex-col items-end" style="min-width: 80px;">
+                    ${userIsAdmin ? '<span class="text-green-400 text-sm mb-1">Admin</span>' : '<span class="mb-1" style="height: 1.25rem;"></span>'}
                     ${isAdmin && !isCurrentUser ? `
                         <div class="relative member-menu-container">
-                            <button class="member-menu-btn text-gray-400 hover:text-white p-1" data-user-id="${user.id}">
-                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M12 6a2 2 0 110-4 2 2 0 010 4zM12 14a2 2 0 110-4 2 2 0 010 4zM12 22a2 2 0 110-4 2 2 0 010 4z"/>
+                            <button class="member-menu-btn text-gray-400 hover:text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity" data-user-id="${user.id}">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                                 </svg>
                             </button>
                             <div class="member-menu hidden absolute right-0 mt-1 w-48 bg-gray-700 rounded-lg shadow-lg py-1 z-10">

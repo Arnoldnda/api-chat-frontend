@@ -443,8 +443,8 @@ function showAddMemberModal(conversationId) {
     if (!conv || conv.type !== 'group') return;
     
     const modalHtml = `
-        <div id="add-member-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
+        <div id="add-member-modal" class="fixed inset-0 flex items-center justify-center z-50" style="background-color: rgba(0, 0, 0, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
+            <div class="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
                 <!-- Header -->
                 <div class="flex items-center justify-between p-4 border-b border-gray-700">
                     <h3 class="text-white font-semibold text-lg">Ajouter un membre</h3>
@@ -503,9 +503,23 @@ function loadUsersForAddMember(conversationId) {
     const $list = $('#add-member-list');
     $list.empty();
     
-    // Utilisateurs pas encore dans le groupe (seulement exclure les membres actifs)
-    // Les anciens membres peuvent être réajoutés
-    const availableUsers = USERS.filter(u => !conv.participants.includes(u.id));
+    // Récupérer les IDs des utilisateurs qui ont définitivement quitté
+    const definitivelyLeftUserIds = [];
+    if (conv.formerMembers && conv.formerMembers.length > 0) {
+        conv.formerMembers.forEach(formerMember => {
+            if (formerMember.hasDefinitivelyLeft === true) {
+                definitivelyLeftUserIds.push(formerMember.userId);
+            }
+        });
+    }
+    
+    // Utilisateurs pas encore dans le groupe (exclure les membres actifs)
+    // Les anciens membres avec hasLeft peuvent être réajoutés
+    // Mais exclure ceux qui ont hasDefinitivelyLeft = true
+    const availableUsers = USERS.filter(u => 
+        !conv.participants.includes(u.id) && 
+        !definitivelyLeftUserIds.includes(u.id)
+    );
     
     if (availableUsers.length === 0) {
         $list.append('<p class="text-gray-400 text-center py-4">Tous les utilisateurs sont déjà membres</p>');
