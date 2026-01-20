@@ -801,12 +801,16 @@ function selectConversation(convId) {
             const showSeparator = shouldShowDaySeparator(msg, previousMsg, index);
             const separatorText = showSeparator ? formatDaySeparator(new Date(msg.createdAt)) : null;
             
-            const msgHtml = createMessageItem(msg, showSeparator, separatorText);
+            // Vérifier si on doit afficher le nom (seulement si c'est le premier message d'une série)
+            const isGroup = currentConversation && currentConversation.type === 'group';
+            const showSenderName = !isGroup || !previousMsg || previousMsg.senderId !== msg.senderId || showSeparator;
+            
+            const msgHtml = createMessageItem(msg, showSeparator, separatorText, showSenderName);
             $container.append(msgHtml);
             
             previousMsg = msg;
         });
-        attachMessageDeleteListeners();
+        attachMessageMenuListeners();
         
         // Initialiser le séparateur sticky pour les conversations temporaires aussi
         initStickyDaySeparator();
@@ -839,7 +843,7 @@ function selectConversation(convId) {
     $('#conversation-info-panel').addClass('hidden');
     
     // Attacher les événements de suppression de messages
-    attachMessageDeleteListeners();
+    attachMessageMenuListeners();
 }
 
 /**
@@ -983,15 +987,32 @@ function loadConversationParticipants(conversationId, callback) {
         });
 }
 
-function attachMessageDeleteListeners() {
+function attachMessageMenuListeners() {
     // Supprimer les anciens listeners
-    $('.message-delete-btn').off('click');
+    $('.message-menu-btn').off('click');
+    $('.delete-message-btn').off('click');
     
-    // Ajouter les nouveaux listeners
-    $('.message-delete-btn').click(function(e) {
+    // Afficher/masquer le menu au clic sur la flèche
+    $('.message-menu-btn').click(function(e) {
+        e.stopPropagation();
+        const $menu = $(this).siblings('.message-menu');
+        $('.message-menu').not($menu).hide();
+        $menu.toggle();
+    });
+    
+    // Supprimer le message au clic sur "Supprimer"
+    $('.delete-message-btn').click(function(e) {
         e.stopPropagation();
         const messageId = parseInt($(this).data('message-id'));
+        $('.message-menu').hide();
         deleteMessage(messageId);
+    });
+    
+    // Fermer les menus si on clique ailleurs
+    $(document).off('click.messageMenu').on('click.messageMenu', function(e) {
+        if (!$(e.target).closest('.message-menu-container').length) {
+            $('.message-menu').hide();
+        }
     });
 }
 
@@ -1103,11 +1124,22 @@ function loadMessages() {
         const $container = $('#messages-container');
         $container.empty();
         const messages = MESSAGES[currentConversation.id] || [];
-        messages.forEach(msg => {
-            const msgHtml = createMessageItem(msg);
+        let previousMsg = null;
+        messages.forEach((msg, index) => {
+            // Vérifier si on doit afficher un séparateur de jour
+            const showSeparator = shouldShowDaySeparator(msg, previousMsg, index);
+            const separatorText = showSeparator ? formatDaySeparator(new Date(msg.createdAt)) : null;
+            
+            // Vérifier si on doit afficher le nom (seulement si c'est le premier message d'une série)
+            const isGroup = currentConversation && currentConversation.type === 'group';
+            const showSenderName = !isGroup || !previousMsg || previousMsg.senderId !== msg.senderId || showSeparator;
+            
+            const msgHtml = createMessageItem(msg, showSeparator, separatorText, showSenderName);
             $container.append(msgHtml);
+            
+            previousMsg = msg;
         });
-        attachMessageDeleteListeners();
+        attachMessageMenuListeners();
         return;
     }
     
@@ -1126,7 +1158,7 @@ function loadMessages() {
             
             if (!response.items || response.items.length === 0) {
                 // Aucun message
-                attachMessageDeleteListeners();
+                attachMessageMenuListeners();
                 return;
             }
             
@@ -1154,14 +1186,18 @@ function loadMessages() {
                 const showSeparator = shouldShowDaySeparator(msg, previousMsg, index);
                 const separatorText = showSeparator ? formatDaySeparator(new Date(msg.createdAt)) : null;
                 
-                const msgHtml = createMessageItem(msg, showSeparator, separatorText);
+                // Vérifier si on doit afficher le nom (seulement si c'est le premier message d'une série)
+                const isGroup = currentConversation && currentConversation.type === 'group';
+                const showSenderName = !isGroup || !previousMsg || previousMsg.senderId !== msg.senderId || showSeparator;
+                
+                const msgHtml = createMessageItem(msg, showSeparator, separatorText, showSenderName);
                 $container.append(msgHtml);
                 
                 previousMsg = msg;
             });
             
             // Attacher les événements de suppression
-            attachMessageDeleteListeners();
+            attachMessageMenuListeners();
             
             // Initialiser le séparateur sticky
             initStickyDaySeparator();
@@ -1400,35 +1436,70 @@ function updateConversationLastMessage(conversationId) {
 function deleteMessage(messageId) {
     if (!currentConversation) return;
     
-    if (confirm('Êtes-vous sûr de vouloir supprimer ce message ?')) {
-        showLoader(true);
-        
-        apiDeleteMessage(messageId)
-            .done(function(response) {
-                showLoader(false);
-                
-                if (response.hasError) {
-                    showError(response.status?.message || 'Erreur lors de la suppression du message');
-                    return;
-                }
-                
-                // Recharger les messages
-                loadMessages();
-                
-                // Mettre à jour le dernier message dans la liste des conversations
-                updateConversationLastMessage(currentConversation.id);
-                
-                showSuccess('Message supprimé');
-            })
-            .fail(function(xhr, status, error) {
-                showLoader(false);
-                showError('Erreur lors de la suppression du message: ' + error);
-                console.error('Erreur deleteMessage:', error);
-            });
-    }
+    showConfirmModal(
+        'Supprimer le message',
+        'Êtes-vous sûr de vouloir supprimer ce message ?',
+        function() {
+            showLoader(true);
+            
+            apiDeleteMessage(messageId)
+                .done(function(response) {
+                    showLoader(false);
+                    
+                    if (response.hasError) {
+                        showError(response.status?.message || 'Erreur lors de la suppression du message');
+                        return;
+                    }
+                    
+                    // Recharger les messages
+                    loadMessages();
+                    
+                    // Mettre à jour le dernier message dans la liste des conversations
+                    updateConversationLastMessage(currentConversation.id);
+                    
+                    showSuccess('Message supprimé');
+                })
+                .fail(function(xhr, status, error) {
+                    showLoader(false);
+                    showError('Erreur lors de la suppression du message: ' + error);
+                    console.error('Erreur deleteMessage:', error);
+                });
+        },
+        null,
+        'Supprimer',
+        'Annuler',
+        true // isDestructive = true pour avoir un bouton rouge
+    );
 }
 
-function createMessageItem(msg, showDaySeparator = false, daySeparatorText = null) {
+/**
+ * Génère une couleur unique pour un participant basée sur son ID
+ * @param {number} userId - L'ID de l'utilisateur
+ * @returns {string} - Classe Tailwind CSS pour la couleur de texte
+ */
+function getParticipantColor(userId) {
+    // Palette de couleurs pour les participants (couleurs distinctes et lisibles)
+    const colors = [
+        'text-blue-400',    // Bleu
+        'text-purple-400',  // Violet
+        'text-pink-400',    // Rose
+        'text-indigo-400',  // Indigo
+        'text-teal-400',    // Sarcelle
+        'text-cyan-400',    // Cyan
+        'text-orange-400',  // Orange
+        'text-amber-400',   // Ambre
+        'text-lime-400',    // Lime
+        'text-emerald-400', // Émeraude
+        'text-red-400',     // Rouge
+        'text-rose-400'     // Rose foncé
+    ];
+    
+    // Utiliser le modulo pour obtenir une couleur basée sur l'ID
+    const colorIndex = userId % colors.length;
+    return colors[colorIndex];
+}
+
+function createMessageItem(msg, showDaySeparator = false, daySeparatorText = null, showSenderName = true) {
     const isOwn = msg.senderId === currentUser.id;
     const sender = getUserById(msg.senderId);
     // TOUJOURS afficher uniquement l'heure (les séparateurs gèrent l'affichage du jour)
@@ -1458,31 +1529,49 @@ function createMessageItem(msg, showDaySeparator = false, daySeparatorText = nul
         `;
     }
     
+    // Déterminer la couleur du nom pour les groupes
+    const isGroup = currentConversation && currentConversation.type === 'group';
+    const nameColor = isGroup && !isOwn ? getParticipantColor(msg.senderId) : 'text-green-400';
+    
     const messageHtml = isOwn ? `
-        <div class="message-item group flex justify-end mb-4 relative" data-message-id="${msg.id}">
-            <div class="bg-green-700 rounded-lg px-4 py-2 max-w-md relative">
+        <div class="message-item group flex justify-end mb-0.5 relative" data-message-id="${msg.id}">
+            <div class="bg-green-700 rounded-lg px-3 py-0.5 max-w-md relative flex flex-col">
                 ${imageHtml}
                 ${contentHtml}
-                <span class="text-xs text-green-200 mt-1 block">${time}</span>
-                <button class="message-delete-btn absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center transition-opacity" data-message-id="${msg.id}" title="Supprimer le message">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
+                <div class="flex items-center justify-end self-end mt-0.5">
+                    <span class="text-xs text-green-200">${time}</span>
+                    <div class="relative message-menu-container ml-2">
+                        <button class="message-menu-btn text-gray-400 hover:text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity" data-message-id="${msg.id}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div class="message-menu hidden absolute right-0 mt-1 w-48 bg-gray-700 rounded-lg shadow-lg py-1 z-10">
+                            <button class="w-full text-left px-4 py-2 text-red-400 hover:bg-gray-600 delete-message-btn" data-message-id="${msg.id}">Supprimer</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     ` : `
-        <div class="message-item group flex justify-start mb-4 relative" data-message-id="${msg.id}">
-            <div class="bg-gray-700 rounded-lg px-4 py-2 max-w-md relative">
-                ${currentConversation.type === 'group' ? `<p class="text-green-400 text-sm font-semibold mb-1">${sender ? sender.prenoms : 'Utilisateur'}</p>` : ''}
+        <div class="message-item group flex justify-start mb-0.5 relative" data-message-id="${msg.id}">
+            <div class="bg-gray-700 rounded-lg px-3 py-0.5 max-w-md relative flex flex-col">
+                ${currentConversation.type === 'group' && showSenderName ? `<p class="${nameColor} text-sm font-semibold mb-0.5">${sender ? sender.prenoms : 'Utilisateur'}</p>` : ''}
                 ${imageHtml}
                 ${contentHtml}
-                <span class="text-xs text-gray-400 mt-1 block">${time}</span>
-                <button class="message-delete-btn absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center transition-opacity" data-message-id="${msg.id}" title="Supprimer le message">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
+                <div class="flex items-center justify-end self-end mt-0.5">
+                    <span class="text-xs text-gray-400">${time}</span>
+                    <div class="relative message-menu-container ml-2">
+                        <button class="message-menu-btn text-gray-400 hover:text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity" data-message-id="${msg.id}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div class="message-menu hidden absolute left-0 mt-1 w-48 bg-gray-700 rounded-lg shadow-lg py-1 z-10">
+                            <button class="w-full text-left px-4 py-2 text-red-400 hover:bg-gray-600 delete-message-btn" data-message-id="${msg.id}">Supprimer</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
